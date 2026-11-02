@@ -2,172 +2,83 @@ name: Android Build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [master, main]
   pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:  # 允许手动触发
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  JAVA_VERSION: '17'
-  GRADLE_VERSION: '8.5'
+  JAVA_VERSION: '21'
 
 jobs:
   build:
+    name: Build APKs
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 45
+
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-      
-    - name: 设置 JDK ${{ env.JAVA_VERSION }}
-      uses: actions/setup-java@v4
-      with:
-        java-version: ${{ env.JAVA_VERSION }}
-        distribution: 'temurin'
-        
-    - name: 设置 Gradle 缓存
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-
-          
-    - name: 设置 Android SDK 缓存
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.android/build-cache
-          ~/.android/cache
-        key: ${{ runner.os }}-android-${{ hashFiles('**/gradle.properties', '**/local.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-android-
-          
-    - name: 安装 Android SDK
-      uses: android-actions/setup-android@v3
-      
-    - name: 接受 Android SDK 许可证
-      run: |
-        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-        
-    - name: 授予 gradlew 执行权限
-      run: chmod +x ./gradlew
-      
-    - name: 验证 Gradle 包装器
-      run: |
-        ./gradlew --version
-        
-    - name: 检查项目结构
-      run: |
-        echo "项目结构:"
-        find . -name "*.gradle" -o -name "*.gradle.kts" | head -20
-        echo ""
-        echo "AndroidManifest.xml 位置:"
-        find . -name "AndroidManifest.xml" | head -10
-        
-    - name: 构建 Debug APK
-      run: |
-        ./gradlew assembleDebug
-        echo "构建完成！"
-        
-    - name: 列出生成的文件
-      run: |
-        echo "APK 文件:"
-        find . -name "*.apk" -type f | while read file; do
-          echo "  - $file ($(du -h "$file" | cut -f1))"
-        done
-        echo ""
-        echo "构建输出目录:"
-        find . -path "*/build/outputs/*" -type d | head -5
-        
-    - name: 上传 Debug APK 作为制品
-      uses: actions/upload-artifact@v4
-      with:
-        name: debug-apk
-        path: |
-          **/build/outputs/apk/debug/*.apk
-        retention-days: 7
-        
-    - name: 构建 Release APK (可选)
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      run: |
-        # 创建临时签名配置（仅用于测试）
-        if [ ! -f app/keystore.jks ]; then
-          echo "创建测试密钥库..."
-          keytool -genkeypair \
-            -alias androiddebugkey \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass android \
-            -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US" \
-            -keystore app/keystore.jks
-        fi
-        
-        # 创建或更新 gradle.properties 文件
-        if [ ! -f local.properties ]; then
-          echo "创建 local.properties 文件..."
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-        fi
-        
-        ./gradlew assembleRelease
-      env:
-        # 设置临时签名配置
-        ANDROID_KEYSTORE_PASSWORD: android
-        ANDROID_KEY_ALIAS: androiddebugkey
-        ANDROID_KEY_PASSWORD: android
-        
-    - name: 上传 Release APK 作为制品
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: actions/upload-artifact@v4
-      with:
-        name: release-apk
-        path: |
-          **/build/outputs/apk/release/*.apk
-        retention-days: 7
-        
-    - name: 生成构建报告
-      if: always()
-      run: |
-        echo "=== 构建报告 ==="
-        echo "工作流程: ${{ github.workflow }}"
-        echo "提交: ${{ github.sha }}"
-        echo "分支: ${{ github.ref }}"
-        echo "运行者: ${{ runner.os }}"
-        echo "Java 版本: ${{ env.JAVA_VERSION }}"
-        echo "Gradle 版本: ${{ env.GRADLE_VERSION }}"
-        echo "Android SDK 路径: $ANDROID_HOME"
-        echo ""
-        echo "生成的文件:"
-        find . -name "*.apk" -type f -exec ls -lh {} \;
-        
-  test:
-    runs-on: ubuntu-latest
-    needs: build
-    
-    steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-      
-    - name: 设置 JDK ${{ env.JAVA_VERSION }}
-      uses: actions/setup-java@v4
-      with:
-        java-version: ${{ env.JAVA_VERSION }}
-        distribution: 'temurin'
-        
-    - name: 运行测试
-      run: |
-        chmod +x ./gradlew
-        ./gradlew test
-        
-    - name: 上传测试报告
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: test-reports
-        path: |
-          **/build/reports/tests/
-        retention-days: 7
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build dependencies
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager --install \
+            "platforms;android-37" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Build and lint
+        run: ./gradlew :app:assembleDebug :app:assembleRelease :app:lintDebug --stacktrace
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rattlegram-cn-${{ github.sha }}
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report-${{ github.sha }}
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Build summary
+        if: always()
+        run: |
+          {
+            echo "### Rattlegram CN build"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Java: ${JAVA_VERSION}"
+            echo "- Gradle: $(./gradlew --version | awk '/^Gradle / { print $2 }')"
+            find app/build/outputs/apk -name '*.apk' -type f -printf '- `%p`\n' 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
